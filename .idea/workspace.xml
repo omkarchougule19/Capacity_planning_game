@@ -4,15 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="75cb616e-73ce-4c07-a4d9-293941f30f27" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/last_mile_command/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/projectRA.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/projectRA.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/last_mile_command/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/last_mile_command/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/engine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/last_mile_command/events.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/events.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/last_mile_command/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/test.py" afterDir="false" />
-    </list>
+    <list default="true" id="75cb616e-73ce-4c07-a4d9-293941f30f27" name="Changes" comment="Commit" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -95,12 +87,25 @@
       <workItem from="1776553947207" duration="9687000" />
       <workItem from="1776811562646" duration="2325000" />
       <workItem from="1776899791592" duration="4185000" />
-      <workItem from="1776996354130" duration="5169000" />
+      <workItem from="1776996354130" duration="5340000" />
     </task>
+    <task id="LOCAL-00001" summary="Commit">
+      <option name="closed" value="true" />
+      <created>1777350960824</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1777350960824</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Commit" />
+    <option name="LAST_COMMIT_MESSAGE" value="Commit" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/projectRA$app.coverage" NAME="app Coverage Results" MODIFIED="1776814099887" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/last_mile_command" />

@@ -393,7 +393,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);height:100vh
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 /* ─── CONFIG ─── */
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = window.location.origin + '/api';
 const MAXES = { trucks:15, drones:12, hubs:6, outsource_slots:5, buffer_units:2000 };
 
 /* ─── CITY LAYOUT (normalized 0–1) ─── */
