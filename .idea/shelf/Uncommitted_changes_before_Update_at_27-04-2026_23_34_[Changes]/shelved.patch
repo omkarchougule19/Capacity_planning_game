@@ -1,0 +1,741 @@
+Index: last_mile_command/engine.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/last_mile_command/engine.py b/last_mile_command/engine.py
+--- a/last_mile_command/engine.py	(revision cfb2dedd2262c137c68bf04e613c96a29c8ea187)
++++ b/last_mile_command/engine.py	(date 1776657114982)
+@@ -1,0 +1,247 @@
++import numpy as np
++from dataclasses import dataclass, field
++from typing import List, Dict
++
++# ── Constants ──────────────────────────────────────────────────────────────────
++
++QUARTERS = 10
++STARTING_CASH = 300_000
++
++# Capacity: how many orders each unit can handle per quarter
++TRUCK_CAPACITY    = 1_000   # per truck
++DRONE_CAPACITY    = 400     # per squad (urban only)
++OUTSOURCE_CAP     = 500     # per 4PL contract slot
++
++# Costs per
++TRUCK_COST_PER    = 12_000
++DRONE_COST_PER    = 6_0
++HUB_COST_ONE_TIME = 25_000  # transshipment hub, one-time
++OUTSOURCE_COST    = 18_000  # per slot per quarter
++BUFFER_COST_UNIT  = 4       # per unit pre-positioned
++
++# Revenue per delivered order
++REVENUE_PER_ORDER = 28      # dollars
++
++# Latency benchmarks (hours) — drones are faster in urban zones
++LATENCY = {
++    "urban_drone": 1.5,
++    "urban_truck": 3.8,
++    "suburban":    4.2,
++    "rural":       6.5,
++}
++
++# Zone definitions: name, type, base demand per quarter
++ZONES = [
++    {"id": "urban",    "label": "Urban core",    "type": "urban",    "base_demand": 1200},
++    {"id": "suburb_n", "label": "Suburbs North",  "type": "suburban", "base_demand": 800},
++    {"id": "suburb_s", "label": "Suburbs South",  "type": "suburban", "base_demand": 600},
++    {"id": "rural",    "label": "Rural East",     "type": "rural",    "base_demand": 320},
++    {"id": "industrial","label":"Industrial West", "type": "suburban", "base_demand": 450},
++    {"id": "airport",  "label": "Airport Hub",    "type": "suburban", "base_demand": 200},
++]
++
++@dataclass
++class GameState:
++    quarter: int = 1
++    cash: float = STARTING_CASH
++    trucks: int = 2          # starting fleet
++    drones: int = 1          # starting drone squads
++    hubs: int = 0            # transshipment hubs built so far
++    outsource_slots: int = 0
++    buffer_units: int = 0
++
++    # History — one entry per completed quarter
++    history: List[Dict] = field(default_factory=list)
++
++    def is_over(self) -> bool:
++        return self.quarter > QUARTERS or self.cash <= 0
++
++    def to_dict(self) -> Dict:
++        return {
++            "quarter":        self.quarter,
++            "cash":           round(self.cash),
++            "trucks":         self.trucks,
++            "drones":         self.drones,
++            "hubs":           self.hubs,
++            "outsource_slots":self.outsource_slots,
++            "buffer_units":   self.buffer_units,
++            "history":        self.history,
++            "is_over":        self.is_over(),
++        }
++
++def generate_demand(quarter: int, event_modifier: float = 1.0) -> Dict:
++    """
++    Generate demand per zone for this quarter.
++    Demand grows ~8% per quarter (e-commerce trend) plus random noise,
++    then scaled by whatever market event hit this quarter.
++    """
++    rng = np.random.default_rng(seed=None)  # unseeded = different every game
++    growth = 1 + (quarter - 1) * 0.08      # 8% quarterly growth trend
++
++    demand = {}
++    for zone in ZONES:
++        base = zone["base_demand"] * growth
++        noise = rng.normal(loc=1.0, scale=0.12)   # ±12% random noise
++        noise = float(np.clip(noise, 0.7, 1.4))   # cap extremes
++        demand[zone["id"]] = max(0, round(base * noise * event_modifier))
++
++    return demand
++
++
++def calculate_capacity(trucks: int, drones: int,
++                        outsource_slots: int, hubs: int,
++                        hub_drone_bonus: float = 0.25) -> Dict:
++
++    truck_cap     = trucks * TRUCK_CAPACITY
++    drone_cap     = round(drones * DRONE_CAPACITY * (1 + hubs * hub_drone_bonus))
++    outsource_cap = outsource_slots * OUTSOURCE_CAP
++
++    return {
++        "urban":    truck_cap + drone_cap + outsource_cap,
++        "suburban": truck_cap + outsource_cap,
++        "rural":    truck_cap + outsource_cap,
++        "total":    truck_cap + drone_cap + outsource_cap,
++    }
++
++
++def simulate_quarter(state: GameState, decisions: Dict, event: Dict) -> Dict:
++    # ── 1. Apply decisions to state ───────────────────────────────────────────
++    hub_spend = max(0, decisions["hubs"] - state.hubs) * HUB_COST_ONE_TIME
++    state.trucks = decisions["trucks"]
++    state.drones = decisions["drones"]
++    state.hubs = decisions["hubs"]
++    state.outsource_slots = decisions["outsource_slots"]
++    state.buffer_units = decisions["buffer_units"]
++
++    # ── 2. Operating costs — including fuel crisis extra cost ─────────────────
++    extra_truck_cost = event.get("extra_cost", 0) * state.trucks
++    op_costs = (
++            state.trucks * TRUCK_COST_PER +
++            state.drones * DRONE_COST_PER +
++            state.outsource_slots * OUTSOURCE_COST +
++            state.buffer_units * BUFFER_COST_UNIT +
++            hub_spend +
++            extra_truck_cost
++    )
++
++    # ── 3. Demand ─────────────────────────────────────────────────────────────
++    demand = generate_demand(state.quarter, event.get("demand_mod", 1.0))
++
++    # ── 4. Effective capacity — apply all event modifiers ─────────────────────
++    truck_cap_mod = event.get("truck_cap_mod", 1.0)
++    drone_cap_mod = event.get("drone_cap_mod", 1.0)
++    hub_bonus_mod = event.get("hub_bonus_mod", 1.0)
++
++    effective_trucks = round(state.trucks * truck_cap_mod)
++    effective_drone_cap = round(
++        state.drones * DRONE_CAPACITY *
++        (1 + state.hubs * 0.25 * hub_bonus_mod) *
++        drone_cap_mod
++    )
++
++    # ── 5. Fulfill demand zone by zone ────────────────────────────────────────
++    # Total capacity pools — shared across ALL zones of that type
++    remaining_truck = effective_trucks * TRUCK_CAPACITY
++    remaining_drone = state.drones * DRONE_CAPACITY * (1 + state.hubs * 0.25)
++    remaining_outsource = state.outsource_slots * OUTSOURCE_CAP
++
++
++    zone_results = []
++    total_demand = 0
++    total_fulfilled = 0
++    total_latency = 0.0
++
++    buffer_available = state.buffer_units if total_demand > (effective_trucks * TRUCK_CAPACITY) else 0
++    remaining_buffer = buffer_available
++    buffer_hold_cost = state.buffer_units * 2  # $2/unit to hold
++    buffer_activation = max(0, total_demand - effective_trucks * TRUCK_CAPACITY) * 3  # $3/unit activated
++
++    for zone in ZONES:
++        zid = zone["id"]
++        ztype = zone["type"]
++        zdemand = demand[zid]
++
++        # Each zone draws from shared pools
++        if ztype == "urban":
++            # Urban can use trucks + drones + outsource + buffer
++            drone_used = min(zdemand, remaining_drone)
++            still_needed = zdemand - drone_used
++            truck_used = min(still_needed, remaining_truck)
++            still_needed -= truck_used
++            out_used = min(still_needed, remaining_outsource)
++            still_needed -= out_used
++            buf_used = min(still_needed, remaining_buffer)
++
++            remaining_drone -= drone_used
++            remaining_truck -= truck_used
++            remaining_outsource -= out_used
++            remaining_buffer -= buf_used
++
++            fulfilled = drone_used + truck_used + out_used + buf_used
++
++            # Latency: weighted avg of drone vs truck deliveries
++            if fulfilled > 0:
++                lat = ((drone_used * LATENCY["urban_drone"]) +
++                       (truck_used * LATENCY["urban_truck"])) / fulfilled
++            else:
++                lat = 0.0
++
++        else:
++            # Suburban / rural: trucks + outsource + buffer only
++            truck_used = min(zdemand, remaining_truck)
++            still_needed = zdemand - truck_used
++            out_used = min(still_needed, remaining_outsource)
++            still_needed -= out_used
++            buf_used = min(still_needed, remaining_buffer)
++
++            remaining_truck -= truck_used
++            remaining_outsource -= out_used
++            remaining_buffer -= buf_used
++
++            fulfilled = truck_used + out_used + buf_used
++            lat = LATENCY["suburban"] if ztype == "suburban" else LATENCY["rural"]
++
++        zone_results.append({
++            "zone": zone["label"],
++            "type": ztype,
++            "demand": zdemand,
++            "fulfilled": int(fulfilled),
++            "latency": round(lat, 2),
++            "service_level": round(fulfilled / max(zdemand, 1), 3),
++        })
++
++        total_demand += zdemand
++        total_fulfilled += int(fulfilled)
++        total_latency += lat
++
++    # ── 6. Calculate KPIs ─────────────────────────────────────────────────────
++    total_capacity = (effective_trucks * TRUCK_CAPACITY) + effective_drone_cap + (state.outsource_slots * OUTSOURCE_CAP)
++    service_level = round(total_fulfilled / max(total_demand, 1), 3)
++    avg_latency = round(total_latency / len(ZONES), 2)
++    utilization = round(total_fulfilled / max(total_capacity, 1), 3)
++
++    revenue = total_fulfilled * REVENUE_PER_ORDER
++    profit = revenue - op_costs
++    state.cash += profit
++
++    # ── 7. Pack results ───────────────────────────────────────────────────────
++    result = {
++        "quarter": state.quarter,
++        "event": event,
++        "demand": demand,
++        "total_capacity":   total_capacity,    # ← replace with this
++        "zone_results": zone_results,
++        "total_demand": total_demand,
++        "total_fulfilled": total_fulfilled,
++        "service_level": service_level,
++        "avg_latency": avg_latency,
++        "utilization": utilization,
++        "revenue": round(revenue),
++        "op_costs": round(op_costs),
++        "profit": round(profit),
++        "cash": round(state.cash),
++    }
++
++    state.history.append(result)
++    state.quarter += 1
++    return result
+\ No newline at end of file
+Index: last_mile_command/test.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/last_mile_command/test.py b/last_mile_command/test.py
+--- a/last_mile_command/test.py	(revision cfb2dedd2262c137c68bf04e613c96a29c8ea187)
++++ b/last_mile_command/test.py	(date 1776533025809)
+@@ -1,0 +1,6 @@
++from events import pick_event, event_summary
++
++print("--- Simulating 10 quarters of events ---")
++for q in range(1, 11):
++    event = pick_event(quarter=q)
++    print(f"Q{q:02d}: {event_summary(event)}")
+\ No newline at end of file
+Index: last_mile_command/events.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/last_mile_command/events.py b/last_mile_command/events.py
+--- a/last_mile_command/events.py	(revision cfb2dedd2262c137c68bf04e613c96a29c8ea187)
++++ b/last_mile_command/events.py	(date 1776533013932)
+@@ -1,0 +1,119 @@
++import random
++from typing import Dict
++
++EVENTS = [
++    {
++        "id":           "stable",
++        "label":        "Stable market",
++        "description":  "No major disruptions. Operations running smoothly.",
++        "type":         "neutral",
++        "demand_mod":   1.0,
++        "truck_cap_mod":1.0,
++        "probability":  0.20,
++    },
++    {
++        "id":           "ecommerce_boom",
++        "label":        "E-commerce surge",
++        "description":  "A viral product drives massive online orders in your zones.",
++        "type":         "good",
++        "demand_mod":   1.35,
++        "truck_cap_mod":1.0,
++        "probability":  0.12,
++    },
++    {
++        "id":           "driver_shortage",
++        "label":        "Driver shortage",
++        "description":  "Labor dispute cuts your truck capacity by 30% this quarter.",
++        "type":         "bad",
++        "demand_mod":   1.0,
++        "truck_cap_mod":0.70,
++        "probability":  0.12,
++    },
++    {
++        "id":           "drone_regulation",
++        "label":        "Drone regulation",
++        "description":  "New FAA rules ground all drones for 6 weeks. Drone capacity zero.",
++        "type":         "bad",
++        "demand_mod":   1.0,
++        "truck_cap_mod":1.0,
++        "drone_cap_mod":0.0,   # new field — we'll handle this next step
++        "probability":  0.08,
++    },
++    {
++        "id":           "competitor_exit",
++        "label":        "Competitor exits",
++        "description":  "A rival shuts down. Their customers flood into your network.",
++        "type":         "good",
++        "demand_mod":   1.25,
++        "truck_cap_mod":1.0,
++        "probability":  0.10,
++    },
++    {
++        "id":           "covid_disruption",
++        "label":        "Supply chain shock",
++        "description":  "Port closures and shortages hit. Costs up, suburban demand drops.",
++        "type":         "bad",
++        "demand_mod":   0.80,
++        "truck_cap_mod":0.85,
++        "probability":  0.10,
++    },
++    {
++        "id":           "holiday_surge",
++        "label":        "Holiday season",
++        "description":  "Peak season hits. Demand spikes across all zones.",
++        "type":         "good",
++        "demand_mod":   1.45,
++        "truck_cap_mod":1.0,
++        "probability":  0.10,
++    },
++    {
++        "id":           "fuel_crisis",
++        "label":        "Fuel price crisis",
++        "description":  "Fuel costs surge. Each truck costs $3K more this quarter.",
++        "type":         "bad",
++        "demand_mod":   1.0,
++        "truck_cap_mod":1.0,
++        "extra_cost":   3000,  # per truck, handled in simulate_quarter
++        "probability":  0.08,
++    },
++    {
++        "id":           "tech_breakthrough",
++        "label":        "Drone range upgrade",
++        "description":  "New battery tech extends drone range. Hubs get a 50% bonus this quarter.",
++        "type":         "good",
++        "demand_mod":   1.0,
++        "truck_cap_mod":1.0,
++        "hub_bonus_mod":1.50,  # multiplies hub_drone_bonus temporarily
++        "probability":  0.10,
++    },
++]
++
++
++def pick_event(quarter: int) -> Dict:
++    """
++    Picks a weighted random event for this quarter.
++    Early quarters lean neutral/good. Later quarters get harsher.
++    """
++    pool = EVENTS.copy()
++
++    # After Q5, increase weight of bad events
++    if quarter > 5:
++        for e in pool:
++            if e["type"] == "bad":
++                e = dict(e)  # don't mutate original
++
++    weights = [e["probability"] for e in pool]
++
++    # Normalize weights so they sum to 1
++    total = sum(weights)
++    weights = [w / total for w in weights]
++
++    chosen = random.choices(pool, weights=weights, k=1)[0]
++    return chosen
++
++
++def event_summary(event: Dict) -> str:
++    """Returns a one-line console summary of the event."""
++    icons = {"good": "++", "bad": "--", "neutral": "=="}
++    icon  = icons.get(event["type"], "  ")
++    return f"[{icon}] {event['label']}: {event['description']}"
+\ No newline at end of file
+Index: last_mile_command/app.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/last_mile_command/app.py b/last_mile_command/app.py
+--- a/last_mile_command/app.py	(revision cfb2dedd2262c137c68bf04e613c96a29c8ea187)
++++ b/last_mile_command/app.py	(date 1776555636314)
+@@ -1,0 +1,126 @@
++from flask import Flask, jsonify, request, send_from_directory
++from flask_cors import CORS
++from engine import GameState, simulate_quarter, calculate_capacity
++from events import pick_event
++import os
++
++app = Flask(__name__, static_folder="static")
++CORS(app)
++
++# One global game state — single player for now
++game_state = GameState()
++
++
++# ── Serve the frontend ────────────────────────────────────────────────────────
++
++@app.route("/")
++def index():
++    return send_from_directory("static", "index.html")
++
++
++# ── API: get current game state ───────────────────────────────────────────────
++
++@app.route("/api/state", methods=["GET"])
++def get_state():
++    return jsonify(game_state.to_dict())
++
++
++# ── API: preview cost before confirming ──────────────────────────────────────
++
++@app.route("/api/preview", methods=["POST"])
++def preview():
++    data = request.json
++    decisions = data["decisions"]
++
++    hub_spend = max(0, decisions["hubs"] - game_state.hubs) * 25000
++    op_costs  = (
++        decisions["trucks"]          * 12000 +
++        decisions["drones"]          * 6000  +
++        decisions["outsource_slots"] * 18000 +
++        decisions["buffer_units"]    * 4     +
++        hub_spend
++    )
++    capacity = calculate_capacity(
++        trucks=decisions["trucks"],
++        drones=decisions["drones"],
++        outsource_slots=decisions["outsource_slots"],
++        hubs=decisions["hubs"],
++    )
++    return jsonify({
++        "op_costs": round(op_costs),
++        "capacity": capacity,
++        "affordable": op_costs <= game_state.cash,
++    })
++
++
++# ── API: confirm quarter ──────────────────────────────────────────────────────
++
++@app.route("/api/simulate", methods=["POST"])
++def simulate():
++    global game_state
++
++    if game_state.is_over():
++        return jsonify({"error": "Game is already over"}), 400
++
++    data      = request.json
++    decisions = data["decisions"]
++    event     = pick_event(game_state.quarter)
++    result    = simulate_quarter(game_state, decisions, event)
++
++    return jsonify({
++        "result":    result,
++        "state":     game_state.to_dict(),
++        "game_over": game_state.is_over(),
++    })
++
++
++# ── API: restart game ─────────────────────────────────────────────────────────
++
++@app.route("/api/restart", methods=["POST"])
++def restart():
++    global game_state
++    game_state = GameState()
++    return jsonify(game_state.to_dict())
++
++
++# ── API: final score ──────────────────────────────────────────────────────────
++
++@app.route("/api/score", methods=["GET"])
++def score():
++    if not game_state.history:
++        return jsonify({"error": "No history yet"}), 400
++
++    history = game_state.history
++    avg_sl      = sum(q["service_level"]  for q in history) / len(history)
++    avg_lat     = sum(q["avg_latency"]    for q in history) / len(history)
++    avg_util    = sum(q["utilization"]    for q in history) / len(history)
++    total_profit= sum(q["profit"]         for q in history)
++
++    # Scoring — weighted like the professor's KPI framework
++    sl_score    = min(avg_sl   * 40,  40)   # 40 pts — service level
++    lat_score   = max(0, (6 - avg_lat) / 6 * 30)  # 30 pts — lower latency = better
++    util_score  = min(avg_util * 20,  20)   # 20 pts — utilization
++    profit_score= min(max(total_profit / 500000 * 10, 0), 10)  # 10 pts — profit
++
++    total = round(sl_score + lat_score + util_score + profit_score)
++    grade = "A" if total >= 85 else "B" if total >= 70 else "C" if total >= 55 else "F"
++
++    return jsonify({
++        "score":        total,
++        "grade":        grade,
++        "avg_sl":       round(avg_sl * 100, 1),
++        "avg_latency":  round(avg_lat, 2),
++        "avg_util":     round(avg_util * 100, 1),
++        "total_profit": round(total_profit),
++        "breakdown": {
++            "service_level": round(sl_score, 1),
++            "latency":       round(lat_score, 1),
++            "utilization":   round(util_score, 1),
++            "profit":        round(profit_score, 1),
++        }
++    })
++
++
++if __name__ == "__main__":
++    os.makedirs("static", exist_ok=True)
++    app.run(debug=True, port=5000)
+\ No newline at end of file
+Index: last_mile_command/.gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/last_mile_command/.gitignore b/last_mile_command/.gitignore
+new file mode 100644
+--- /dev/null	(date 1777349695433)
++++ b/last_mile_command/.gitignore	(date 1777349695433)
+@@ -0,0 +1,44 @@
++# Python
++__pycache__/
++*.py[cod]
++*.pyo
++*.pyd
++.Python
++*.egg-info/
++dist/
++build/
++
++# Virtual environment
++venv/
++env/
++.venv/
++.env
++
++# Flask
++instance/
++.webassets-cache
++flask_session/
++
++# Environment variables
++.env
++.env.local
++
++# OS
++.DS_Store
++Thumbs.db
++desktop.ini
++
++# IDE
++.vscode/
++.idea/
++*.swp
++*.swo
++
++# Logs
++*.log
++logs/
++
++# Test artifacts
++.pytest_cache/
++htmlcov/
++.coverage
+\ No newline at end of file
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"ChangeListManager\">\r\n    <list default=\"true\" id=\"75cb616e-73ce-4c07-a4d9-293941f30f27\" name=\"Changes\" comment=\"\" />\r\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\r\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\r\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\r\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\r\n  </component>\r\n  <component name=\"Git.Settings\">\r\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"ProjectColorInfo\"><![CDATA[{\r\n  \"associatedIndex\": 2\r\n}]]></component>\r\n  <component name=\"ProjectId\" id=\"3CXPhusRly2gclSSoB6Ifx5J0ib\" />\r\n  <component name=\"ProjectViewState\">\r\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\r\n    <option name=\"showLibraryContents\" value=\"true\" />\r\n  </component>\r\n  <component name=\"PropertiesComponent\"><![CDATA[{\r\n  \"keyToString\": {\r\n    \"ModuleVcsDetector.initialDetectionPerformed\": \"true\",\r\n    \"RunOnceActivity.ShowReadmeOnStart\": \"true\",\r\n    \"git-widget-placeholder\": \"master\",\r\n    \"vue.rearranger.settings.migration\": \"true\"\r\n  }\r\n}]]></component>\r\n  <component name=\"SharedIndexes\">\r\n    <attachedChunks>\r\n      <set>\r\n        <option value=\"bundled-js-predefined-d6986cc7102b-e03c56caf84a-JavaScript-PY-252.23892.515\" />\r\n        <option value=\"bundled-python-sdk-7e47963ff851-f0eec537fc84-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.23892.515\" />\r\n      </set>\r\n    </attachedChunks>\r\n  </component>\r\n  <component name=\"TaskManager\">\r\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\r\n      <changelist id=\"75cb616e-73ce-4c07-a4d9-293941f30f27\" name=\"Changes\" comment=\"\" />\r\n      <created>1776529067758</created>\r\n      <option name=\"number\" value=\"Default\" />\r\n      <option name=\"presentableId\" value=\"Default\" />\r\n      <updated>1776529067758</updated>\r\n      <workItem from=\"1776529068471\" duration=\"5000\" />\r\n    </task>\r\n    <servers />\r\n  </component>\r\n  <component name=\"TypeScriptGeneratedFilesManager\">\r\n    <option name=\"version\" value=\"3\" />\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision cfb2dedd2262c137c68bf04e613c96a29c8ea187)
++++ b/.idea/workspace.xml	(date 1777350369542)
+@@ -1,31 +1,81 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <project version="4">
++  <component name="AutoImportSettings">
++    <option name="autoReloadType" value="SELECTIVE" />
++  </component>
+   <component name="ChangeListManager">
+-    <list default="true" id="75cb616e-73ce-4c07-a4d9-293941f30f27" name="Changes" comment="" />
++    <list default="true" id="75cb616e-73ce-4c07-a4d9-293941f30f27" name="Changes" comment="">
++      <change afterPath="$PROJECT_DIR$/last_mile_command/.gitignore" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/.idea/projectRA.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/projectRA.iml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/last_mile_command/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/app.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/last_mile_command/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/engine.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/last_mile_command/events.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/events.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/last_mile_command/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/test.py" afterDir="false" />
++    </list>
+     <option name="SHOW_DIALOG" value="false" />
+     <option name="HIGHLIGHT_CONFLICTS" value="true" />
+     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+     <option name="LAST_RESOLUTION" value="IGNORE" />
++  </component>
++  <component name="FileTemplateManagerImpl">
++    <option name="RECENT_TEMPLATES">
++      <list>
++        <option value="Python Script" />
++      </list>
++    </option>
++  </component>
++  <component name="FlaskConsoleOptions" custom-start-script="import sys; print('Python %s on %s' % (sys.version, sys.platform)); sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])&#10;from flask.cli import ScriptInfo, NoAppException&#10;for module in [&quot;main.py&quot;, &quot;wsgi.py&quot;, &quot;app.py&quot;]:&#10;    try: locals().update(ScriptInfo(app_import_path=module, create_app=None).load_app().make_shell_context()); print(&quot;\nFlask App: %s&quot; % app.import_name); break&#10;    except NoAppException: pass">
++    <envs>
++      <env key="FLASK_APP" value="app" />
++    </envs>
++    <option name="myCustomStartScript" value="import sys; print('Python %s on %s' % (sys.version, sys.platform)); sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])&#10;from flask.cli import ScriptInfo, NoAppException&#10;for module in [&quot;main.py&quot;, &quot;wsgi.py&quot;, &quot;app.py&quot;]:&#10;    try: locals().update(ScriptInfo(app_import_path=module, create_app=None).load_app().make_shell_context()); print(&quot;\nFlask App: %s&quot; % app.import_name); break&#10;    except NoAppException: pass" />
++    <option name="myEnvs">
++      <map>
++        <entry key="FLASK_APP" value="app" />
++      </map>
++    </option>
+   </component>
+   <component name="Git.Settings">
+     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+   </component>
+-  <component name="ProjectColorInfo"><![CDATA[{
+-  "associatedIndex": 2
++  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
++  "lastFilter": {
++    "state": "OPEN",
++    "assignee": "omkarchougule19"
++  }
++}]]></component>
++  <component name="GithubPullRequestsUISettings"><![CDATA[{
++  "selectedUrlAndAccountId": {
++    "url": "https://github.com/omkarchougule19/Capacity_planning_game.git",
++    "accountId": "0c212c08-c221-494d-bd05-4e1b976f13b2"
++  }
+ }]]></component>
++  <component name="ProjectColorInfo">{
++  &quot;associatedIndex&quot;: 2
++}</component>
+   <component name="ProjectId" id="3CXPhusRly2gclSSoB6Ifx5J0ib" />
+   <component name="ProjectViewState">
+     <option name="hideEmptyMiddlePackages" value="true" />
+     <option name="showLibraryContents" value="true" />
+   </component>
+-  <component name="PropertiesComponent"><![CDATA[{
+-  "keyToString": {
+-    "ModuleVcsDetector.initialDetectionPerformed": "true",
+-    "RunOnceActivity.ShowReadmeOnStart": "true",
+-    "git-widget-placeholder": "master",
+-    "vue.rearranger.settings.migration": "true"
++  <component name="PropertiesComponent">{
++  &quot;keyToString&quot;: {
++    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
++    &quot;Python.app.executor&quot;: &quot;Run&quot;,
++    &quot;Python.test.executor&quot;: &quot;Run&quot;,
++    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
++    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
++    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
++    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
++    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
++    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
++    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
++    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+   }
+-}]]></component>
++}</component>
+   <component name="SharedIndexes">
+     <attachedChunks>
+       <set>
+@@ -41,11 +91,19 @@
+       <option name="number" value="Default" />
+       <option name="presentableId" value="Default" />
+       <updated>1776529067758</updated>
+-      <workItem from="1776529068471" duration="5000" />
++      <workItem from="1776529068471" duration="5216000" />
++      <workItem from="1776553947207" duration="9687000" />
++      <workItem from="1776811562646" duration="2325000" />
++      <workItem from="1776899791592" duration="4185000" />
++      <workItem from="1776996354130" duration="4673000" />
+     </task>
+     <servers />
+   </component>
+   <component name="TypeScriptGeneratedFilesManager">
+     <option name="version" value="3" />
+   </component>
++  <component name="com.intellij.coverage.CoverageDataManagerImpl">
++    <SUITE FILE_PATH="coverage/projectRA$app.coverage" NAME="app Coverage Results" MODIFIED="1776814099887" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/last_mile_command" />
++    <SUITE FILE_PATH="coverage/projectRA$test.coverage" NAME="test Coverage Results" MODIFIED="1776537343996" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/last_mile_command" />
++  </component>
+ </project>
+\ No newline at end of file
+Index: .idea/projectRA.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<module type=\"PYTHON_MODULE\" version=\"4\">\r\n  <component name=\"NewModuleRootManager\">\r\n    <content url=\"file://$MODULE_DIR$\" />\r\n    <orderEntry type=\"inheritedJdk\" />\r\n    <orderEntry type=\"sourceFolder\" forTests=\"false\" />\r\n  </component>\r\n</module>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/projectRA.iml b/.idea/projectRA.iml
+--- a/.idea/projectRA.iml	(revision cfb2dedd2262c137c68bf04e613c96a29c8ea187)
++++ b/.idea/projectRA.iml	(date 1776529167324)
+@@ -1,8 +1,10 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <module type="PYTHON_MODULE" version="4">
+   <component name="NewModuleRootManager">
+-    <content url="file://$MODULE_DIR$" />
+-    <orderEntry type="inheritedJdk" />
++    <content url="file://$MODULE_DIR$">
++      <excludeFolder url="file://$MODULE_DIR$/.venv" />
++    </content>
++    <orderEntry type="jdk" jdkName="Python 3.13 (projectRA)" jdkType="Python SDK" />
+     <orderEntry type="sourceFolder" forTests="false" />
+   </component>
+ </module>
+\ No newline at end of file
