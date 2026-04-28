@@ -5,13 +5,19 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="75cb616e-73ce-4c07-a4d9-293941f30f27" name="Changes" comment="Changes for deployment">
-      <change beforePath="$PROJECT_DIR$/Procfile" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/Procfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/images/Scene 0.png" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/images/Scene 0.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/images/Scene 1.png" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/images/Scene 1.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/images/Scene 2.png" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/images/Scene 2.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/images/Scene 3.png" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/images/Scene 3.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/images/Start screen.png" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/images/Start screen.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/last_mile_command/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/Procfile" beforeDir="false" afterPath="$PROJECT_DIR$/Procfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/events.py" beforeDir="false" afterPath="$PROJECT_DIR$/events.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/images/Scene 0.png" beforeDir="false" afterPath="$PROJECT_DIR$/images/Scene 0.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/images/Scene 1.png" beforeDir="false" afterPath="$PROJECT_DIR$/images/Scene 1.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/images/Scene 2.png" beforeDir="false" afterPath="$PROJECT_DIR$/images/Scene 2.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/images/Scene 3.png" beforeDir="false" afterPath="$PROJECT_DIR$/images/Scene 3.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/images/Start screen.png" beforeDir="false" afterPath="$PROJECT_DIR$/images/Start screen.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/static/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/static/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/last_mile_command/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -76,6 +82,12 @@
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="D:\projectRA" />
+      <recent name="D:\projectRA\last_mile_command" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -95,7 +107,7 @@
       <workItem from="1776553947207" duration="9687000" />
       <workItem from="1776811562646" duration="2325000" />
       <workItem from="1776899791592" duration="4185000" />
-      <workItem from="1776996354130" duration="6219000" />
+      <workItem from="1776996354130" duration="6612000" />
     </task>
     <task id="LOCAL-00001" summary="Commit">
       <option name="closed" value="true" />
@@ -113,7 +125,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777383113491</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Changes for deployment">
+      <option name="closed" value="true" />
+      <created>1777383910016</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1777383910016</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
